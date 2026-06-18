@@ -15,9 +15,61 @@
 #include "serializer.h"
 #include "serialize_ck.h"
 
+static void dump_processing_attr_bytes(const char *label, const void *data,
+				       size_t size)
+{
+	const unsigned char *buf = data;
+	size_t n = 0;
+
+	if (!data || !size) {
+		printf("%s: <empty> (ptr=%p size=%zu)\n", label, data, size);
+		return;
+	}
+
+	printf("%s:", label);
+	for (n = 0; n < size; n++)
+		printf(" %02x", buf[n]);
+	printf("\n");
+}
+
+static void dump_ck_create_object_attribs(CK_SESSION_HANDLE session,
+					  CK_ATTRIBUTE_PTR attribs,
+					  CK_ULONG count)
+{
+	CK_ULONG n = 0;
+
+	printf("ck_create_object: session=0x%lx count=%lu attribs=%p\n",
+	       (unsigned long)session, (unsigned long)count, attribs);
+
+	for (n = 0; n < count; n++) {
+		CK_ATTRIBUTE *attr = attribs + n;
+
+		printf("ck_create_object: attr[%lu]=type=0x%08lx pValue=%p ulValueLen=%lu\n",
+		       (unsigned long)n, (unsigned long)attr->type,
+		       attr->pValue, (unsigned long)attr->ulValueLen);
+
+		if (attr->type == CKA_TOKEN && attr->pValue &&
+		    attr->ulValueLen >= sizeof(CK_BBOOL)) {
+			CK_BBOOL token = CK_FALSE;
+
+			memcpy(&token, attr->pValue, sizeof(token));
+			printf("ck_create_object: attr[%lu] CKA_TOKEN bool=%s raw=0x%02x\n",
+			       (unsigned long)n,
+			       token == CK_TRUE ? "CK_TRUE" :
+			       token == CK_FALSE ? "CK_FALSE" : "INVALID",
+			       (unsigned int)token);
+		}
+
+		dump_processing_attr_bytes("ck_create_object attr bytes",
+					   attr->pValue, attr->ulValueLen);
+	}
+
+	fflush(stdout);
+}
+
 CK_RV ck_create_object(CK_SESSION_HANDLE session, CK_ATTRIBUTE_PTR attribs,
 		       CK_ULONG count, CK_OBJECT_HANDLE_PTR handle)
-{
+{	printf("\n Inside ck_create_object \n -- sahesaha");
 	CK_RV rv = CKR_GENERAL_ERROR;
 	struct serializer obj = { 0 };
 	size_t ctrl_size = 0;
@@ -31,6 +83,9 @@ CK_RV ck_create_object(CK_SESSION_HANDLE session, CK_ATTRIBUTE_PTR attribs,
 	if (!handle || !attribs || !count)
 		return CKR_ARGUMENTS_BAD;
 
+	dump_ck_create_object_attribs(session, attribs, count);
+
+	printf("\n Inside ck_create_object serialize_ck_attributes \n -- sahesaha");
 	rv = serialize_ck_attributes(&obj, attribs, count);
 	if (rv)
 		goto out;

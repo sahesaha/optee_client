@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <pkcs11.h>
 #include <pkcs11_ta.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -150,6 +151,93 @@ static int ck_attr_is_ulong(CK_ATTRIBUTE_TYPE attribute_id)
 	}
 }
 
+static void dump_serialized_bytes(const char *label, const void *data, size_t size)
+{
+	const uint8_t *buf = data;
+	char line[3 * 16 + 1] = { 0 };
+	size_t n = 0;
+	size_t m = 0;
+
+	if (!data || !size) {
+		printf("%s: <empty> (ptr=%p size=%zu)\n", label, data, size);
+		return;
+	}
+
+	for (n = 0; n < size; n += 16) {
+		size_t chunk = size - n;
+
+		if (chunk > 16)
+			chunk = 16;
+
+		memset(line, 0, sizeof(line));
+		for (m = 0; m < chunk; m++)
+			snprintf(line + m * 3, sizeof(line) - m * 3, "%02"PRIx8"%c",
+				 buf[n + m], (m + 1 < chunk) ? ' ' : '\0');
+
+		printf("%s[%zu..%zu]: %s\n", label, n, n + chunk - 1, line);
+	}
+}
+
+static void dump_ck_attribute_details(CK_ATTRIBUTE *attr, void *pkcs11_pdata,
+				      uint32_t pkcs11_size)
+{
+	printf("serialize_ck_attribute: attr=%s(0x%08"PRIx32") pValue=%p ulValueLen=%"PRIuPTR"\n",
+	       cka2str(attr->type), (uint32_t)attr->type, attr->pValue,
+	       (uintptr_t)attr->ulValueLen);
+
+	if (!attr->pValue) {
+		printf("serialize_ck_attribute: %s has NULL pValue\n",
+		       cka2str(attr->type));
+		return;
+	}
+
+	if (ck_attr_is_ulong(attr->type) && attr->ulValueLen >= sizeof(CK_ULONG)) {
+		CK_ULONG ck_ulong = 0;
+
+		memcpy(&ck_ulong, attr->pValue, sizeof(ck_ulong));
+		printf("serialize_ck_attribute: %s CK_ULONG value=%"PRIuPTR" (0x%"PRIxPTR")\n",
+		       cka2str(attr->type), (uintptr_t)ck_ulong,
+		       (uintptr_t)ck_ulong);
+
+		switch (attr->type) {
+		case CKA_CLASS:
+			printf("serialize_ck_attribute: %s decoded=%s\n",
+			       cka2str(attr->type), cko2str(ck_ulong));
+			break;
+		case CKA_KEY_TYPE:
+			printf("serialize_ck_attribute: %s decoded=%s\n",
+			       cka2str(attr->type), ckk2str(ck_ulong));
+			break;
+		case CKA_MECHANISM_TYPE:
+		case CKA_KEY_GEN_MECHANISM:
+			printf("serialize_ck_attribute: %s decoded=%s\n",
+			       cka2str(attr->type), ckm2str(ck_ulong));
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (attr->type == CKA_ALLOWED_MECHANISMS) {
+		CK_MECHANISM_TYPE *type = attr->pValue;
+		size_t count = attr->ulValueLen / sizeof(CK_ULONG);
+		size_t n = 0;
+
+		for (n = 0; n < count; n++)
+			printf("serialize_ck_attribute: %s[%zu]=%s(0x%08"PRIx32")\n",
+			       cka2str(attr->type), n, ckm2str(type[n]),
+			       (uint32_t)type[n]);
+	}
+
+	dump_serialized_bytes("serialize_ck_attribute input bytes",
+			      attr->pValue, attr->ulValueLen);
+	printf("serialize_ck_attribute: serialized-size=%"PRIu32" serialized-ptr=%p\n",
+	       pkcs11_size, pkcs11_pdata);
+	dump_serialized_bytes("serialize_ck_attribute serialized bytes",
+			      pkcs11_pdata, pkcs11_size);
+	fflush(stdout);
+}
+
 static CK_RV serialize_ck_attribute(struct serializer *obj, CK_ATTRIBUTE *attr)
 {
 	CK_MECHANISM_TYPE *type = NULL;
@@ -206,6 +294,8 @@ static CK_RV serialize_ck_attribute(struct serializer *obj, CK_ATTRIBUTE *attr)
 		}
 		break;
 	}
+
+	dump_ck_attribute_details(attr, pkcs11_pdata, pkcs11_size);
 
 	rv = serialize_32b(obj, attr->type);
 	if (rv)
